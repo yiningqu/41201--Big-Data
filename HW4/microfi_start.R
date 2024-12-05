@@ -1,0 +1,171 @@
+## microfinance network 
+## data from BANERJEE, CHANDRASEKHAR, DUFLO, JACKSON 2012
+
+## data on 8622 households
+hh <- read.csv("microfi_households.csv", row.names="hh")
+hh$village <- factor(hh$village)
+
+## We'll kick off with a bunch of network stuff.
+## This will be covered in more detail in lecture 6.
+## get igraph off of CRAN if you don't have it
+## install.packages("igraph")
+## this is a tool for network analysis
+## (see http://igraph.sourceforge.net/)
+install.packages("igraph")
+library(igraph)
+edges <- read.table("microfi_edges.txt", colClasses="character")
+## edges holds connections between the household ids
+hhnet <- graph.edgelist(as.matrix(edges))
+hhnet <- as.undirected(hhnet) # two-way connections.
+
+## igraph is all about plotting.  
+V(hhnet) ## our 8000+ household vertices
+## Each vertex (node) has some attributes, and we can add more.
+V(hhnet)$village <- as.character(hh[V(hhnet),'village'])
+## we'll color them by village membership
+vilcol <- rainbow(nlevels(hh$village))
+names(vilcol) <- levels(hh$village)
+V(hhnet)$color = vilcol[V(hhnet)$village]
+## drop HH labels from plot
+V(hhnet)$label=NA
+
+# graph plots try to force distances proportional to connectivity
+# imagine nodes connected by elastic bands that you are pulling apart
+# The graphs can take a very long time, but I've found
+# edge.curved=FALSE speeds things up a lot.  Not sure why.
+
+## we'll use induced.subgraph and plot a couple villages 
+village1 <- induced.subgraph(hhnet, v=which(V(hhnet)$village=="1"))
+village33 <- induced.subgraph(hhnet, v=which(V(hhnet)$village=="33"))
+
+# vertex.size=3 is small.  default is 15
+plot(village1, vertex.size=3, edge.curved=FALSE)
+plot(village33, vertex.size=3, edge.curved=FALSE)
+
+######  now, on to your homework stuff
+
+library(gamlr)
+
+## match id's; I call these 'zebras' because they are like crosswalks
+zebra <- match(rownames(hh), V(hhnet)$name)
+
+## calculate the `degree' of each hh: 
+##  number of commerce/friend/family connections
+degree <- degree(hhnet)[zebra]
+names(degree) <- rownames(hh)
+degree[is.na(degree)] <- 0 # unconnected houses, not in our graph
+
+## if you run a full glm, it takes forever and is an overfit mess
+# > summary(full <- glm(loan ~ degree + .^2, data=hh, family="binomial"))
+# Warning messages:
+# 1: glm.fit: algorithm did not converge 
+# 2: glm.fit: fitted probabilities numerically 0 or 1 occurred 
+
+
+## Log transformation
+d <- log(degree+1)
+## Distribution of transformed degree
+hist(d, breaks = 15, main = "Histogram of treatment variable" )
+
+
+library(gamlr)
+source("naref.R") 
+
+
+hh$village <- as.factor(hh$village)
+hh$village <- naref(hh$village)
+
+hh$religion <- as.factor(hh$religion)
+hh$religion <- naref(hh$religion)
+
+hh$roof <- as.factor(hh$roof)
+hh$roof <- naref(hh$roof)
+
+hh$electricity <- as.factor(hh$electricity)
+hh$electricity <- naref(hh$electricity)
+
+hh$ownership <- as.factor(hh$ownership)
+hh$ownership <- naref(hh$ownership)
+
+hh$leader <- as.factor(hh$leader)
+hh$leader <- naref(hh$leader)
+
+
+levels(hh$village)
+levels(hh$religion)
+levels(hh$roof)
+levels(hh$electricity)
+levels(hh$ownership)
+levels(hh$leader)
+
+x<-sparse.model.matrix(~. -loan, data=hh)[,-1]
+
+colnames(x)<-levels(hh)[-1]
+
+treat <- gamlr(x,d,lambda.min.ratio=1e-4)
+
+dhat <- predict(treat, x, type="response") 
+
+plot(dhat,d,bty="n",pch=21,bg=8)
+
+R2 <- cor(drop(dhat),d)^2
+cat("in-sample R-squared is ", R2, "\n")
+
+
+y <- hh$loan
+
+causal <- gamlr(cbind(d,dhat,x),y,family = "binomial",free=2,lmr=1e-4)
+causald <- coef(causal)["d",]
+cat("effect of d on loan ",causald , "\n")
+
+naive <- gamlr(cbind(d,x),y,family = "binomial")
+
+naived <- coef(naive)["d",]
+cat("effect of d on loan from a straight (naive) lasso ",naived, "\n")
+
+
+
+n <- nrow(x)
+gamb <- c() # empty gamma
+
+for(b in 1:200){
+  ## create a matrix of resampled indices
+  
+  ib <- sample(1:n, n, replace=TRUE)
+  
+  ## create the resampled data
+  
+  xb <- x[ib,]
+  
+  db <- d[ib]
+  
+  yb <- y[ib]
+  
+  ## run the treatment regression
+  
+  treatb <- gamlr(xb,db,lambda.min.ratio=1e-3)
+  
+  dhatb <- predict(treatb, xb, type="response")
+  
+  fitb <- gamlr(cbind(db,dhatb,xb),yb,family = "binomial",free=2)
+  
+  gamb <- c(gamb,coef(fitb)["db",])
+}
+
+## not very exciting though: all zeros
+
+summary(gamb) 
+
+
+hist(gamb,freq=FALSE,breaks=25)
+
+sdup <- mean(gamb)+2*sd(gamb)
+sddown <- mean(gamb)-2*sd(gamb)
+abline(v=coef(causal)["d",], col='red',lwd=2)
+abline(v=mean(gamb), col='green',lwd=2)
+abline(v=sdup,col=4,lwd=2)
+abline(v=sddown,col=4,lwd=2)
+abline(v=quantile(gamb,0.025),col='blue',lwd=2) 
+abline(v=quantile(gamb,0.975),col='blue',lwd=2)
+
+

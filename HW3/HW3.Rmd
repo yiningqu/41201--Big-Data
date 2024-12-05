@@ -1,0 +1,160 @@
+---
+title: "HW3"
+author: "Yining Qu"
+date: "2024-04-07"
+output: html_document
+---
+
+```{r setup}
+library(knitr) # library for nice R markdown output # READ REVIEWS
+data<-read.table("Review_subset.csv",header=TRUE) 
+dim(data)
+```
+```{r}
+# 13319 reviews
+# ProductID: Amazon ASIN product code
+# UserID:  id of the reviewer
+# Score: numeric from 1 to 5
+# Time: date of the review
+# Summary: text review
+# nrev: number of reviews by this user
+# Length: length of the review (number of words)
+# READ WORDS
+words<-read.table("words.csv") 
+words<-words[,1]
+length(words)
+```
+```{r }
+# READ text-word pairings file
+doc_word<-read.table("word_freq.csv") 
+names(doc_word)<-c("Review ID","Word ID","Times Word" )
+# Review ID: row of the file Review_subset
+# Word ID: index of the word
+# Times Word: number of times this word occurred in the text
+```
+
+## Question 1
+We want to build a predictor of customer ratings from product reviews and product attributes. For these questions, you will fit a LASSO path of logistic regression using a binary outcome:
+Y = 1 for 5 stars (1) 
+Y = 0 for less than 5 stars. (2)
+Fit a LASSO model with only product categories. The start code prepares a sparse design matrix of 142 product categories. What is the in-sample R2 for the AICc slice of the LASSO path? Why did we use standardize FALSE? (1 point)
+
+```{r}
+# Let's define the binary outcome
+
+# Y=1 if the rating was 5 stars
+
+# Y=0 otherwise
+
+Y<-as.numeric(data$Score==5)
+```
+
+```{r }
+# (a) Use only product category as a predictor
+
+library(gamlr)
+
+source("naref.R") 
+
+# Cast the product category as a factor
+data$Prod_Category<-as.factor(data$Prod_Category)
+
+class(data$Prod_Category)
+
+```
+```{r}
+# look inside naref.R; it applies to every factor variable:
+#   > factor(x,levels=c(NA,levels(x)),exclude=NULL) 
+# Since product category is a factor, we want to relevel it for the LASSO. We want each coefficient to be an intercept for each factor level rather than a contrast.
+
+levels(data$Prod_Category)
+
+data$Prod_Category<-naref(data$Prod_Category)
+
+levels(data$Prod_Category)
+
+# Create a design matrix using only products
+
+products<-data.frame(data$Prod_Category)
+
+
+x_cat<-sparse.model.matrix(~., data=products)[,-1]
+
+# Sparse matrix, storing 0's as .'s 
+# We removed intercept so that each category is standalone, not a contrast relative to the baseline category
+
+
+colnames(x_cat)<-levels(data$Prod_Category)[-1]
+# let's call the columns of the sparse design matrix as the product categories
+
+
+# Let's fit the LASSO with just the product categories
+lasso1<- gamlr(x_cat,	y=Y,standardize=FALSE,family="binomial",
+lambda.min.ratio=1e-3)
+```
+```{r}
+# The number of observations
+n <- nrow(x_cat)
+
+# Calculate the AICc for each model along the LASSO path
+aic_values <- sapply(1:length(lasso1$lambda), function(i) {
+  deviance <- lasso1$deviance[i]
+  num_params <- lasso1$df[i]  # number of non-zero coefficients
+  aicc <- deviance + 2 * num_params * (n / (n - num_params - 1))
+  return(aicc)
+})
+
+optimal_index <- which.min(aic_values)
+D <- lasso1$deviance[optimal_index]
+null_model <- glm(Y ~ 1, family = "binomial", data = data.frame(Y = Y))
+D0 <- null_model$deviance
+R2 <- 1 - (D / D0)
+cat("in-sample R-squared for the AICc slice of the LASSO path is ", R2, "\n")
+```
+"Standardize" parameter controls whether the predictor variables are scaled to have mean zero and standard deviation one before the model fitting process. We use standardize FALSE because the predictors are categorical (product category), represented as binary variables in a design matrix. Standardizing these binary indicators wouldn't make sense because they are already on a comparable scale, representing whether or not a product belongs to a specific category. Also, unlike continuous variables, where standardizing helps to normalize differences in units and scales, binary indicators do not suffer from this issue.
+
+## Question 2
+```{r}
+# (2) Fit a LASSO with all 142 product categories and 1125 words 
+library(gamlr)
+
+spm<-sparseMatrix(i=doc_word[,1],j=doc_word[,2],x=doc_word[,3],dimnames=list(id=1:nrow(data),words=words))
+
+dim(spm)
+
+# 13319 reviews using 1125 words
+
+
+x_cat2<-cbind(x_cat,spm)
+
+lasso2 <- gamlr(x_cat2,
+				   y=Y,
+				   lambda.min.ratio=1e-3,
+				   family="binomial",
+				   verb=TRUE)
+```
+```{r}
+n <- nrow(x_cat2)  
+
+# Calculate the AICc for each model along the LASSO path of lasso2
+aic_values2 <- sapply(1:length(lasso2$lambda), function(i) {
+  deviance <- lasso2$deviance[i]
+  num_params <- lasso2$df[i]  # number of non-zero coefficients
+  # Calculate AICc using the number of observations specific to lasso2
+  aicc <- deviance + 2 * num_params * (n / (n - num_params - 1))
+  return(aicc)
+})
+
+optimal_index2 <- which.min(aic_values2)
+# Retrieve the coefficients at the optimal lambda
+```
+```{r}
+optimal_coefs <- coef(lasso2, s=lasso2$lambda[optimal_index2])
+optimal_coefs_vector <- as.vector(optimal_coefs@x)
+
+```
+
+
+
+
+

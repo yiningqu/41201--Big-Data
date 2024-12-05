@@ -1,0 +1,191 @@
+---
+title: "HW8"
+author: "Yining Qu"
+date: "2024-05-15"
+output: 
+    pdf_document: default
+---
+
+```{r cars}
+library(stats)
+library(glmnet)
+library(Rcpp) 
+library(ggplot2) 
+library(reshape2)
+library(corrplot)
+```
+
+```{r pressure}
+fx <- read.csv("FXmonthly.csv")
+fx <- (fx[2:120,]-fx[1:119,])/(fx[1:119,])
+sp500 <- read.csv("sp500.csv")
+```
+
+## Q1
+
+```{r}
+# Calculate and visualize the correlation matrix
+cor_matrix <- cor(fx)
+corrplot::corrplot(cor_matrix, method = "circle")
+```
+```{r}
+print(cor_matrix)
+```
+
+## Q2
+```{r}
+# Fit PCA
+pcfx <- prcomp(fx, scale = TRUE)
+
+plot(pcfx, main="")
+
+```
+```{r}
+pcs <- predict(pcfx)
+
+plot(pcs[,1], pcs[,2], xlab = "First Principal Component", ylab = "Second Principal Component", main = "Scatter Plot of the First Two Principal Components", pch = 20, col = 'blue')
+
+text(pcs[,1], pcs[,2], labels = rownames(pcs), pos = 4, cex = 0.6)
+
+```
+```{r}
+plot(pcs[,2], pcs[,3], xlab = "Second Principal Component", ylab = "Third Principal Component", main = "Scatter Plot of the Second versus the Third Principal Components", pch = 20, col = 'blue')
+
+text(pcs[,1], pcs[,2], labels = rownames(pcs), pos = 4, cex = 0.6)
+
+```
+
+```{r}
+# far right
+smallest_pcs <- sort(pcs[,1])[1:5]
+smallest_pcs
+```
+```{r}
+# far left
+largest_pcs <- sort(pcs[,1], decreasing = TRUE)[1:5]
+largest_pcs
+```
+
+```{r}
+t(round(pcfx$rotation[,1:2],2))
+```
+PC1 Loadings:
+- Mostly negative across many currencies, indicating a general pattern where an increase in the principal component score corresponds to a decrease in these currency values against their pair.
+- The magnitude of the loadings (e.g., -0.28 for exdnus) signifies how much a unit change in the principal component affects the currency. Larger absolute values mean greater sensitivity to changes in this component.
+
+PC2 Loadings:
+- Mixed signs across different currencies indicate diverse influences captured by this component. For instance, a positive loading for exbzus (0.33) against a negative for exjpus (-0.46) highlights how different economic or market conditions might be driving movements in these currencies.
+
+## Q3
+```{r}
+set.seed(4)
+
+if (!requireNamespace("AICcmodavg", quietly = TRUE)) {
+  install.packages("AICcmodavg")
+}
+
+# Load the AICcmodavg package
+library(AICcmodavg)
+
+# Convert the principal components to a data frame for modeling
+zdf <- as.data.frame(pcs)
+
+# Perform regression using the first two principal components
+summary(fxglm <- glm(sp500$sp500 ~ ., data=zdf[, 1:2]))
+
+# Function to calculate AICc for a glm model
+calculateAICc <- function(model) {
+  AICc(model)
+}
+
+# Perform GLM fits on 1:20 factors and calculate AICc for each
+kfits <- lapply(1:20, function(K) {
+  glm(sp500$sp500 ~ ., data = zdf[, 1:K, drop = FALSE])
+})
+
+aicc <- sapply(kfits, calculateAICc) # Apply AICc calculation to each fit
+which.min(aicc) # Determine which model size (number of factors) is preferred by AICc
+
+# Optionally, also calculate BIC for comparison
+bic <- sapply(kfits, BIC)
+which.min(bic) # Determine which model size (number of factors) is preferred by BIC
+```
+```{r}
+# Plot the AICc values
+plot(aicc, type = 'b', xlab = "Number of Factors", ylab = "AICc", main = "AICc by Number of Factors")
+```
+
+```{r}
+best_aicc_index <- which.min(aicc)
+print(coef(kfits[[best_aicc_index]]))
+```
+
+
+
+```{r}
+# Ensure the glmnet package is installed and loaded
+if (!requireNamespace("glmnet", quietly = TRUE)) {
+    install.packages("glmnet")
+}
+library(glmnet)
+
+# Assuming 'pcs' is a data frame or matrix of principal components
+# and 'sp500$sp500' is a vector of your response variable
+
+# Convert 'pcs' to matrix if it is not already
+pcs_matrix <- as.matrix(pcs)
+
+# Set seed for reproducibility
+
+# Perform Lasso regression with cross-validation
+lassoPCR <- cv.glmnet(x = pcs_matrix, y = sp500$sp500, family = "gaussian", nfolds = 20, alpha = 1)
+
+# Coefficients at the best lambda (lambda that gives minimum mean cross-validated error)
+lasso_coef <- coef(lassoPCR, s = "lambda.min")
+
+# Plotting the results
+par(mfrow=c(1,2))  # Set up the plotting area to have 1 row and 2 columns
+
+# Plot AICc
+plot(aicc, pch=21, bg="maroon", xlab="K", ylab="AICc", main="AICc by Number of Factors")
+
+# Plot Lasso path
+plot(lassoPCR)
+title("Lasso Path")
+
+```
+
+```{r}
+lambda_min <- lassoPCR$lambda.min
+lasso_model_min <- glmnet(pcs_matrix, sp500$sp500, lambda = lambda_min)
+coefficients_min <- coef(lassoPCR, s = "lambda.min")
+print(coefficients_min)
+```
+
+## Q4
+```{r}
+# Prepare the data
+fx_matrix <- as.matrix(fx)  # Convert fx to matrix if not already
+sp500_vector <- sp500$sp500  # Assuming sp500$sp500 is already a vector
+
+# Fit Lasso model using cross-validation to determine the best lambda
+set.seed(41201)  # For reproducibility
+lambda_values <- 10^seq(3, -2, by = -0.1)
+cv_lasso_fx <- cv.glmnet(x = fx_matrix, y = sp500_vector, alpha = 1, family = "gaussian", nfolds = 20)
+
+# Coefficients at the best lambda
+best_lambda_fx <- cv_lasso_fx$lambda.min
+coefficients_fx <- coef(cv_lasso_fx, s = "lambda.min")
+
+# Print the coefficients
+print(coefficients_fx)
+
+# Plot the Lasso path
+plot(cv_lasso_fx)
+title("Lasso Path for Original Covariates")
+
+```
+
+
+
+

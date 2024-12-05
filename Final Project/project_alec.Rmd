@@ -1,0 +1,626 @@
+---
+title: "project_alec"
+output: html_document
+---
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(readr)
+library(reshape2)
+library(gridExtra)
+library(grid)
+library(GGally)
+
+```
+
+
+```{r}
+raw_data <- read_csv("data/train.csv")
+raw_data$health <- factor(raw_data$health, levels = c(1, 2, 3, 4, 5), 
+                          labels = c("VERY GOOD", "GOOD", "SATISFACTORY", "NOT THAT GOOD", "BAD"))
+```
+# Exploratory Data Analysis (EDA)
+
+## EDA of potential Y variables
+
+The scatterplot displays individual data points where the x-axis represents the row number (essentially the order of the observations in the dataset) and the y-axis represents the health status. Each point on the scatterplot corresponds to a unique observation in the dataset, with the transparency set to 50% (alpha = 0.5) to help visualize overlapping points.
+
+The scatterplot helps us see the overall distribution of health status values. We can identify how health statuses are spread throughout the dataset and if there are any clusters or gaps.
+
+```{r}
+raw_data$row_number <- 1:nrow(raw_data)
+scatter_plot <- ggplot(raw_data, aes(x = row_number, y = health)) +
+  geom_point(alpha = 0.009) +
+  labs(title = "Scatterplot of Row Number vs Health Status", x = "Row Number", y = "Health Status") +
+  theme_minimal()
+
+# Print the scatterplot with increase5d width
+print(scatter_plot, width = 10, height = 6)
+```
+
+Observations:
+
+1. Density and Overlap:
+There is a high density of points for "GOOD" and "SATISFACTORY" health statuses. This suggests that a large portion of the dataset reports these health status levels.
+The points for "VERY GOOD", "NOT THAT GOOD", and "BAD" are less dense, indicating fewer observations in these categories.
+
+2. Lack of Clear Trend:
+Since the row number is not an intrinsic variable but rather an ordering of the data, there is no discernible trend in health status over row numbers. The health statuses are distributed fairly uniformly across the row numbers.
+This uniform distribution implies that there is no inherent ordering or time-related pattern in the health status data based on row numbers.
+
+3. Potential Data Imbalance:
+The higher concentration of points in the "GOOD" and "VERY GOOD" categories compared to the other categories might indicate a potential imbalance in the dataset. This could be important for further analysis, especially if health status is used as a target variable in predictive modeling.
+
+
+
+We now plot the distribution of health status in the dataset using two different visualizations: a regular histogram and a log-transformed histogram. These visualizations help us understand the distribution and skewness of the health status variable.
+
+```{r}
+# Histogram of the response variable 'health' with different colors
+histogram_health <- ggplot(raw_data, aes(x = health, fill = health)) +
+  geom_bar() +
+  labs(title = "Distribution of Health Status", x = "Health Status", y = "Count") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_manual(values = c("VERY GOOD" = "blue", "GOOD" = "green", "SATISFACTORY" = "yellow", "NOT THAT GOOD" = "orange", "BAD" = "red"))
+
+# Log-transformed histogram with different colors
+# First, compute counts and then log-transform
+health_counts <- raw_data %>%
+  group_by(health) %>%
+  summarise(count = n())
+
+log_transformed_health <- ggplot(health_counts, aes(x = health, y = log(count), fill = health)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Log-Transformed Distribution of Health Status", x = "Health Status", y = "Log(Count)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_manual(values = c("VERY GOOD" = "blue", "GOOD" = "green", "SATISFACTORY" = "yellow", "NOT THAT GOOD" = "orange", "BAD" = "red"))
+
+# Arrange the plots in a single row with increased width
+options(repr.plot.width = 16, repr.plot.height = 6)
+grid.arrange(histogram_health, log_transformed_health, ncol = 2)
+
+```
+
+Distribution of Health Status (Regular Histogram)
+
+1. Right Skew:
+The original histogram shows a right-skewed distribution, with the majority of observations falling into the "GOOD" and "SATISFACTORY" categories.
+This skewness indicates that fewer individuals reported their health status as "BAD" or "NOT THAT GOOD", while a large number of individuals reported "GOOD" health status.
+
+2. Imbalance in Categories:
+The "GOOD" category has the highest count, followed by "SATISFACTORY". The "VERY GOOD" category also has a significant number of observations.
+The "NOT THAT GOOD" and "BAD" categories have much lower counts, indicating an imbalance in the dataset.
+
+Log-Transformed Distribution of Health Status
+
+1. Gaussian-like Distribution:
+Applying a log transformation to the counts helps normalize the distribution, making it look more Gaussian (bell-shaped).
+This transformation reduces the impact of the right skew and provides a clearer view of the relative differences between categories.
+
+2. Better Visualization of Counts:
+The log-transformed histogram provides a better visualization of the lower counts in the "NOT THAT GOOD" and "BAD" categories, which are less pronounced in the regular histogram due to the skewness.
+The relative differences between the categories become more apparent after the log transformation.
+
+The regular histogram reveals a right-skewed distribution of health status, with a large number of observations reporting "GOOD" and "SATISFACTORY" health statuses, and fewer observations in the "NOT THAT GOOD" and "BAD" categories.
+The log-transformed histogram normalizes the distribution, providing a Gaussian-like shape and making the differences between categories clearer.
+
+
+## EDA of X variables
+
+Let's pick some informative variables for EDA, so that we reduce the high-dimensional data into a few key features for exploration.
+
+```{r}
+# Important variables and their respective titles
+important_vars <- list(
+  x1 = "Current Economic Situation in Germany",
+  x111 = "Trust in Health Service",
+  x112 = "Trust in Federal Constitutional Court",
+  x118 = "Trust in Television",
+  x119 = "Trust in Newspapers",
+  x120 = "Trust in Universities, Higher Education",
+  x121 = "Trust in Federal Government",
+  x122 = "Trust in Police",
+  x163 = "Self-Assessment of Social Class, Respondent",
+  x190 = "Success: Depends on Own Education",
+  x453 = "Body Height in Centimeters",
+  x454 = "Body Weight in Kilograms",
+  x760 = "Spouse's Age",
+  x1180 = "Social Class of Household",
+  x1035 = "Number of Biological Children"
+)
+
+# Print out the variable names and their interpretations
+for (var in names(important_vars)) {
+  cat(paste(var, ":", important_vars[[var]], "\n"))
+}
+
+important_vars <- c("x1", "x111", "x112", "x118", "x119", "x120", "x121", "x122", "x163", "x190", "x453", "x454", "x760", "x1180", "x1035")
+
+```
+
+The X variables are chosen from aspects including Economical/Financial Situation, Social Class, Political Opinion, Social Acceptance, biological, family members, and education, which aims to depict a full picture of the participants.
+
+
+### Relationship between X variables
+
+Let's check the correlations between X variables, since we need to examine multicollinearity assumption for running linear regressions later.
+
+```{r}
+# Select the important variables from the dataset
+data_selected <- raw_data %>% select(all_of(important_vars))
+
+# Convert variables to numeric if they are not already
+data_selected <- data_selected %>% mutate(across(everything(), ~ as.numeric(as.character(.))))
+
+# Fill missing values with the mean of each column
+data_selected <- data_selected %>% mutate(across(everything(), ~ ifelse(is.na(.), mean(., na.rm = TRUE), .)))
+
+# Log transform the data, adding a small constant to avoid log(0) issues
+data_log_transformed <- data_selected %>% mutate(across(everything(), ~ log(. + 1)))
+
+# Check the structure of the log-transformed data
+str(data_log_transformed)
+
+# Create the correlation matrix plot
+ggcorr(data_log_transformed, label = TRUE, label_size = 3, label_round = 2, hjust = 1, size = 3, color = "grey50")
+
+```
+
+1. We observe strong correlations among several variables:
+
+x118 and x119 (0.65): There is a strong positive correlation between variables x118 (Trust in TV) and x119 (Trust in Newspapers). This suggests that individuals who trust TV also tend to trust newspapers.
+x120 and x121 (0.46): A moderately strong positive correlation exists between x120 (Trust in high Education) and x121 (Trust in Fed Govt), indicating that trust in higher education is associated with trust in the federal government.
+x121 and x122 (0.46): A similar positive correlation between x121 (Trust in Fed Govt) and x122 (Trust in Police) suggests that individuals who trust the federal government also tend to trust the police.
+x111 and x118 (0.3): There is a moderate positive correlation between x111 (Trust in Health Service) and x118 (Trust in TV).
+
+
+2. Some variables establish moderate correlations:
+
+x111 and x112 (0.15): A positive correlation between x111 (Trust in Health Service) and x112 (Trust in Fed Constit Court).
+x118 and x119 (0.37): A positive correlation between x118 (Trust in TV) and x119 (Trust in Newspapers).
+
+
+The correlation matrix reveals several pairs of variables with strong or moderate positive correlations, indicating potential multicollinearity issues. High multicollinearity can make it difficult to determine the individual effect of each predictor on the response variable, leading to unreliable statistical inferences. This indicates that methods such as variable selection, PCA, or regularization techniques are required later to help mitigate these issues.
+
+
+Let's examine the relationships between various pairs of variables in the dataset, with each point colored based on health status.
+
+```{r}
+# Simplified version of axis titles
+vars <- list(
+  x1 = list(title = "Curnt Econ Situat in Ger", levels = c(1, 2, 3, 4, 5), labels = c("VERY GOOD", "GOOD", "PART GOOD, PART BAD", "BAD", "VERY BAD")),
+  x111 = list(title = "Trust in Health Service"),
+  x112 = list(title = "Trust in Fed Constit Court"),
+  x118 = list(title = "Trust in Television"),
+  x119 = list(title = "Trust in Newspapers"),
+  x120 = list(title = "Trust in high Educ"),
+  x121 = list(title = "Trust in Fed Govt"),
+  x122 = list(title = "Trust in Police"),
+  x190 = list(title = "Success depends on Educ"),
+  x453 = list(title = "Height in cm"),
+  x454 = list(title = "Weight in kg"),
+  x760 = list(title = "Spouse's Age"),
+  x1180 = list(title = "Household Social Class", levels = c(1, 2, 3, 4, 5, 6), labels = c("LOWER CLASS", "WORKING CLASS", "MIDDLE CLASS", "UPPER MIDDLE CLASS", "UPPER CLASS", "CANNOT SAY")),
+  x1035 = list(title = "Number of Children")
+)
+
+# Function to create scatter plots for log-transformed pairs of variables
+create_scatter_plot <- function(data, vars_pair, x_label, y_label, show_legend = TRUE) {
+  # Select the important variables and health from the dataset
+  data_selected <- data %>% select(all_of(c(vars_pair, "health")))
+
+  # Convert variables to numeric if they are not already, preserving factor levels
+  data_selected <- data_selected %>% mutate(across(all_of(vars_pair), ~ as.numeric(factor(.))))
+
+  # Fill missing values with the mean of each column
+  data_selected <- data_selected %>% mutate(across(all_of(vars_pair), ~ ifelse(is.na(.), mean(., na.rm = TRUE), .)))
+
+  # Log transform the data, adding a small constant to avoid log(0) issues
+  data_log_transformed <- data_selected %>% mutate(across(all_of(vars_pair), ~ log(. + 1)))
+
+  # Create scatter plot for log-transformed variables
+  scatter_plot <- ggplot(data_log_transformed, aes_string(x = vars_pair[1], y = vars_pair[2], color = "health")) +
+    geom_point(alpha = 0.6) +
+    labs(title = paste("Scatter Plot of", x_label, "vs", y_label),
+         x = paste("Log of", x_label),
+         y = paste("Log of", y_label),
+         color = "Health Status") +
+    theme_minimal() +
+    theme(plot.title = element_text(size = 7),
+          axis.title.x = element_text(size = 6),
+          axis.title.y = element_text(size = 6),
+          axis.text = element_text(size = 4),
+          legend.title = element_blank(),
+          legend.text = element_text(size = 4))
+
+  if (!show_legend) {
+    scatter_plot <- scatter_plot + theme(legend.position = "none")
+  }
+
+  return(scatter_plot)
+}
+
+# Create scatter plots for the specified pairs of variables
+plot1 <- create_scatter_plot(raw_data, c("x453", "x454"), 
+                             vars$x453$title, vars$x454$title, show_legend = FALSE)
+
+plot2 <- create_scatter_plot(raw_data, c("x190", "x120"), 
+                             vars$x190$title, vars$x120$title, show_legend = TRUE)
+
+plot3 <- create_scatter_plot(raw_data, c("x1", "x163"), 
+                             vars$x1$title, "Social Class Resp.", show_legend = FALSE)
+
+plot4 <- create_scatter_plot(raw_data, c("x118", "x119"), 
+                             vars$x118$title, vars$x119$title, show_legend = TRUE)
+
+plot5 <- create_scatter_plot(raw_data, c("x1", "x190"), 
+                             vars$x1$title, vars$x190$title, show_legend = FALSE)
+
+plot6 <- create_scatter_plot(raw_data, c("x112", "x121"), 
+                             vars$x112$title, vars$x121$title, show_legend = TRUE)
+
+# Display the plots 2 in a row with added spacing
+grid.arrange(grobs = list(plot1, plot2, plot3, plot4, plot5, plot6),
+             layout_matrix = rbind(c(1, 2),
+                                   c(3, 4),
+                                   c(5, 6)),
+             widths = unit(c(8, 8), "cm"),
+             heights = unit(rep(3.8, 3.8), "cm"),
+             padding = unit(1, "lines"))
+
+```
+
+1. Height in cm vs Weight in kg (Log-transformed):
+
+There is a noticeable positive correlation between height and weight, as expected. Taller individuals tend to weigh more.
+Points are spread across different health statuses, indicating no clear distinction based on health status in this relationship.
+
+2. Success Depends on Education vs Trust in High Education (Log-transformed):
+
+The plot shows a clustering of points, indicating that those who believe success depends on education tend to also have trust in higher education.
+The majority of the points fall within the "GOOD" and "SATISFACTORY" health status categories.
+Current Economic Situation in Germany vs Social Class (Log-transformed):
+
+3. Lower numerical values on the x-axis indicate a better economic situation, while higher values indicate a worse situation.
+Social class shows some variation across different economic situations, but there is no strong linear relationship.
+Trust in Television vs Trust in Newspapers (Log-transformed):
+
+4. A positive correlation is evident, with individuals who trust television also likely to trust newspapers.
+Trust values are lower (indicating stronger trust) for individuals with better health statuses like "VERY GOOD" and "GOOD".
+Current Economic Situation in Germany vs Success Depends on Education (Log-transformed):
+
+5. The scatter plot suggests no strong relationship between the economic situation and the belief that success depends on education.
+Health status appears to be distributed evenly across the different economic situations and beliefs about education.
+Trust in Federal Constitutional Court vs Trust in Federal Government (Log-transformed):
+
+6. A positive correlation is present, indicating that individuals who trust the Federal Constitutional Court also tend to trust the Federal Government.
+Trust values are lower (indicating stronger trust) for individuals with better health statuses.
+
+Conclusion:
+Positive correlations are observed between height and weight, trust in television and newspapers, and trust in the Federal Constitutional Court and the Federal Government. The color coding by health status shows that individuals with better health tend to have stronger trust (lower numerical values). The data also suggests that the current economic situation in Germany and beliefs about success depending on education are not strongly correlated with other variables.
+
+Understanding these relationships helps in identifying patterns and potential areas for further analysis, especially considering the impact of health status on trust and perceptions of the economic situation.
+
+Moreover, as we observed some strong correlation between certain variable pairs, we can use PCA in the analysis below to further analyze and reduce the dimensionality of this dataset. PCA combines several variables into principal components that capture the maximum variance in the data, whcih helps reduce the complexity of the dataset, mitigating multicollinearity issues, enhancing the robustness of predictive models.
+
+
+### Conditioanl distribution of X variables given health
+
+Understanding the conditional distribution of explanatory (X) variables given different levels of the response variable, in this case, health status, is a crucial step in many statistical analyses and machine learning tasks. This approach allows us to uncover how various factors relate to health outcomes and identify potential predictors for health-related studies. By examining the conditional distributions, we can gain insights into how different X variables (such as socioeconomic factors, trust in institutions, or personal attributes) vary across different health statuses. This can reveal significant relationships and dependencies that might not be apparent when looking at marginal distributions.
+
+```{r}
+# Function to create histogram and boxplot for a variable
+create_plots <- function(data, var, var_title, levels=NULL, labels=NULL) {
+  if (!is.null(levels) && !is.null(labels)) {
+    data[[var]] <- factor(data[[var]], levels = levels, labels = labels)
+  }
+  
+  # Histogram
+  p_hist <- ggplot(data, aes_string(x = var, fill = "health")) +
+    geom_bar(position = "dodge", color = "black") +
+    labs(title = paste("Histogram of", var_title), x = var_title, y = "Count") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 6), 
+          axis.text.y = element_text(size = 6),
+          axis.title = element_text(size = 8),
+          plot.title = element_text(size = 10),
+          legend.position = "none") +
+    scale_fill_manual(values = c("VERY GOOD" = "blue", "GOOD" = "green", "SATISFACTORY" = "yellow", "NOT THAT GOOD" = "orange", "BAD" = "red")) +
+    guides(fill = guide_legend(title = NULL))
+
+  # Boxplot
+  p_box <- ggplot(data, aes_string(x = "health", y = as.numeric(data[[var]]), fill = "health")) +
+    geom_boxplot() +
+    labs(title = paste("Boxplot of", var_title, "by Health Status"), x = "Health Status", y = var_title) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 3),
+          axis.text.y = element_text(size = 3),
+          axis.title = element_text(size = 7),
+          plot.title = element_text(size = 8),
+          legend.position = "bottom",
+          legend.text = element_text(size = 4.5),
+          legend.title = element_blank()) +
+    scale_fill_manual(values = c("VERY GOOD" = "blue", "GOOD" = "green", "SATISFACTORY" = "yellow", "NOT THAT GOOD" = "orange", "BAD" = "red")) +
+    guides(fill = guide_legend(title = NULL))
+  
+  return(list(p_hist, p_box))
+}
+
+# Function to create subgroup histograms and boxplots for specific variables
+create_subgroup_plots <- function(data, var, var_title) {
+  # Histogram
+  p_hist <- ggplot(data, aes_string(x = var, fill = "health")) +
+    geom_histogram(position = "identity", alpha = 0.5, color = "black", bins = 30) +
+    facet_wrap(~health, ncol = 1) +
+    labs(title = paste("Histogram of", var_title, "by Health Status"), x = var_title, y = "Count") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(size = 3),
+          axis.text.y = element_text(size = 3),
+          axis.title = element_text(size = 7),
+          plot.title = element_text(size = 8),
+          strip.text = element_text(size = 4),  # Reduce the strip text size
+          legend.position = "none")
+
+  # Boxplot
+  p_box <- ggplot(data, aes_string(x = "health", y = var, fill = "health")) +
+    geom_boxplot() +
+    labs(title = paste("Boxplot of", var_title, "by Health Status"), x = "Health Status", y = var_title) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(size = 4),
+          axis.text.y = element_text(size = 4),
+          axis.title = element_text(size = 7),
+          plot.title = element_text(size = 8),
+          strip.text = element_text(size = 8),  # Reduce the strip text size
+          legend.position = "bottom",
+          legend.text = element_text(size = 4.5),
+          legend.title = element_blank()) +
+    scale_fill_manual(values = c("VERY GOOD" = "blue", "GOOD" = "green", "SATISFACTORY" = "yellow", "NOT THAT GOOD" = "orange", "BAD" = "red")) +
+    guides(fill = guide_legend(title = NULL))
+  
+  return(list(p_hist, p_box))
+}
+
+# Create plots for each variable
+plot_list <- list()
+
+# Variables with their respective titles
+vars <- list(
+  x1 = list(title = "Current Econ Situat", levels = c(1, 2, 3, 4, 5), labels = c("VERY GOOD", "GOOD", "PART GOOD, PART BAD", "BAD", "VERY BAD")),
+  x111 = list(title = "Trust in Health Service"),
+  x112 = list(title = "Trust in Fed Constit Court"),
+  x118 = list(title = "Trust in TV"),
+  x119 = list(title = "Trust in Newspapers"),
+  x120 = list(title = "Trust in high Educ"),
+  x121 = list(title = "Trust in Fed Govt"),
+  x122 = list(title = "Trust in Police"),
+  x190 = list(title = "Success depends on Educ"),
+  x453 = list(title = "Height in cm"),
+  x454 = list(title = "Weight in kg"),
+  x760 = list(title = "Spouse's Age"),
+  x1180 = list(title = "Household Social Class", levels = c(1, 2, 3, 4, 5, 6), labels = c("LOWER CLASS", "WORKING CLASS", "MIDDLE CLASS", "UPPER MIDDLE CLASS", "UPPER CLASS", "CANNOT SAY")),
+  x1035 = list(title = "Number of Children")
+)
+
+for (var in names(vars)) {
+  var_title <- vars[[var]]$title
+  levels <- vars[[var]]$levels
+  labels <- vars[[var]]$labels
+  if (var %in% c("x453", "x454", "x760")) {
+    plots <- create_subgroup_plots(raw_data, var, var_title)
+    plot_list <- c(plot_list, plots)
+  } else {
+    plots <- create_plots(raw_data, var, var_title, levels, labels)
+    plot_list <- c(plot_list, plots)
+  }
+}
+
+```
+
+
+```{r}
+grid.arrange(
+  grobs = list(
+    ggplotGrob(plot_list[[1]]), ggplotGrob(plot_list[[2]]),
+    ggplotGrob(plot_list[[3]]), ggplotGrob(plot_list[[4]])
+  ),
+  ncol = 2,
+  nrow = 2,
+  widths = c(0.6, 0.6),
+  heights = c(1, 1),
+  padding = unit(1, "lines")
+)
+
+```
+Histogram and Boxplot of Current Economic Situation:
+
+Histogram:
+The "GOOD" health status is the most frequently reported, followed by "SATISFACTORY".
+Individuals reporting "VERY GOOD" and "GOOD" health statuses are more likely to rate the current economic situation as better (lower numerical values).
+Conversely, those with "NOT THAT GOOD" or "BAD" health statuses tend to rate the economic situation worse (higher numerical values).
+
+Boxplot:
+Lower median values are observed for "VERY GOOD" and "GOOD" health statuses, indicating a better perception of the economic situation.
+There is greater variability in the economic situation ratings for individuals with "SATISFACTORY", "NOT THAT GOOD", and "BAD" health statuses, with higher median values.
+
+Economic Situation: Healthier individuals tend to perceive the current economic situation more positively. The ratings are more favorable (lower numerical values) for "VERY GOOD" and "GOOD" health statuses, indicating better economic perceptions.
+
+
+Histogram and Boxplot of Trust in Health Service
+
+Histogram:
+Higher trust levels (lower numerical values) are more common among individuals reporting "VERY GOOD" and "GOOD" health statuses.
+There is a noticeable decline in trust for "SATISFACTORY", "NOT THAT GOOD", and "BAD" health statuses.
+
+Boxplot:
+Individuals with "VERY GOOD" and "GOOD" health statuses generally exhibit higher trust in health services, with lower median values.
+The trust levels decrease for those with "SATISFACTORY", "NOT THAT GOOD", and "BAD" health statuses, showing higher median values and greater spread.
+
+Trust in Health Services: Trust in health services is higher among healthier individuals. Those with "VERY GOOD" and "GOOD" health statuses exhibit stronger trust (lower numerical values), whereas trust declines for individuals with poorer health statuses.
+
+These insights emphasize the importance of health status as a key factor influencing individuals' perceptions of their economic environment and trust in health services.
+
+
+```{r}
+grid.arrange(
+  grobs = list(
+    ggplotGrob(plot_list[[5]]), ggplotGrob(plot_list[[6]]),
+    ggplotGrob(plot_list[[7]]), ggplotGrob(plot_list[[8]])
+  ),
+  ncol = 2,
+  nrow = 2,
+  widths = c(0.6, 0.6),
+  heights = c(1, 1),
+  padding = unit(1, "lines")
+)
+
+```
+Histogram and Boxplot of Trust in the Federal Constitutional Court
+
+Histogram:
+Higher trust levels (lower numerical values) are more frequent among individuals reporting "VERY GOOD" and "GOOD" health statuses.
+Trust decreases as health status worsens, with "NOT THAT GOOD" and "BAD" categories showing a broader distribution with higher numerical values.
+
+Boxplot:
+Individuals with "VERY GOOD" and "GOOD" health statuses generally exhibit higher trust in the Federal Constitutional Court, with lower median values.
+Trust levels are lower (higher numerical values) for those with "SATISFACTORY", "NOT THAT GOOD", and "BAD" health statuses, showing higher medians and greater spread.
+
+Trust in the Federal Constitutional Court: Healthier individuals tend to have higher trust in the Federal Constitutional Court. The trust levels are more favorable (lower numerical values) for "VERY GOOD" and "GOOD" health statuses, indicating stronger trust.
+
+Histogram and Boxplot of Trust in TV
+
+Histogram:
+The histogram depicts the distribution of trust in TV across different health statuses.
+Similar to the previous histogram, higher trust levels (lower numerical values) are more common among individuals with "VERY GOOD" and "GOOD" health statuses.
+Trust in TV decreases for "SATISFACTORY", "NOT THAT GOOD", and "BAD" health statuses, with a broader distribution towards higher numerical values.
+
+Boxplot:
+The boxplot shows the variability in trust within each health status category.
+Individuals with "VERY GOOD" and "GOOD" health statuses generally have higher trust in TV, with lower median values.
+Trust levels decrease (higher numerical values) for those with poorer health statuses ("SATISFACTORY", "NOT THAT GOOD", and "BAD"), showing higher medians and greater variability.
+
+Trust in TV: Similarly, trust in TV is higher among healthier individuals. Those with "VERY GOOD" and "GOOD" health statuses exhibit stronger trust (lower numerical values), whereas trust decreases for individuals with poorer health statuses.
+
+
+```{r}
+grid.arrange(
+  grobs = list(
+    ggplotGrob(plot_list[[9]]), ggplotGrob(plot_list[[10]]),
+    ggplotGrob(plot_list[[11]]), ggplotGrob(plot_list[[12]])
+  ),
+  ncol = 2,
+  nrow = 2,
+  widths = c(0.6, 0.6),
+  heights = c(1, 1),
+  padding = unit(1, "lines")
+)
+
+```
+Histogram and Boxplot of Trust in Newspapers
+
+Histogram:
+Higher trust levels (lower numerical values) are more frequent among individuals reporting "VERY GOOD" and "GOOD" health statuses.
+Trust decreases as health status worsens, with "NOT THAT GOOD" and "BAD" categories showing a broader distribution with higher numerical values.
+
+Boxplot:
+Individuals with "VERY GOOD" and "GOOD" health statuses generally exhibit higher trust in newspapers, with lower median values.
+Trust levels are lower (higher numerical values) for those with "SATISFACTORY", "NOT THAT GOOD", and "BAD" health statuses, showing higher medians and greater spread.
+
+Trust in Newspapers: Healthier individuals tend to have higher trust in newspapers. The trust levels are more favorable (lower numerical values) for "VERY GOOD" and "GOOD" health statuses, indicating stronger trust.
+
+
+Histogram and Boxplot of Trust in Higher Education
+
+Histogram:
+Higher trust levels (lower numerical values) are more common among individuals with "VERY GOOD" and "GOOD" health statuses.
+Trust in higher education decreases for "SATISFACTORY", "NOT THAT GOOD", and "BAD" health statuses, with a broader distribution towards higher numerical values.
+
+Boxplot:
+Individuals with "VERY GOOD" and "GOOD" health statuses generally have higher trust in higher education, with lower median values.
+Trust levels decrease (higher numerical values) for those with poorer health statuses ("SATISFACTORY", "NOT THAT GOOD", and "BAD"), showing higher medians and greater variability.
+
+Trust in Higher Education: Similarly, trust in higher education is higher among healthier individuals. Those with "VERY GOOD" and "GOOD" health statuses exhibit stronger trust (lower numerical values), whereas trust decreases for individuals with poorer health statuses.
+
+
+
+
+```{r}
+grid.arrange(
+  grobs = list(
+    ggplotGrob(plot_list[[13]]), ggplotGrob(plot_list[[14]]),
+    ggplotGrob(plot_list[[15]]), ggplotGrob(plot_list[[16]]),
+    ggplotGrob(plot_list[[17]]), ggplotGrob(plot_list[[18]])
+  ),
+  ncol = 3,
+  nrow = 2,
+  widths = c(0.6, 0.6, 0.6),
+  heights = c(1, 1),
+  padding = unit(1, "lines")
+)
+```
+
+Trust in the Federal Government: Healthier individuals tend to have higher trust in the Federal Government. The trust levels are more favorable (lower numerical values) for "VERY GOOD" and "GOOD" health statuses, indicating stronger trust.
+
+Trust in the Police: Similarly, trust in the Police is higher among healthier individuals. Those with "VERY GOOD" and "GOOD" health statuses exhibit stronger trust (lower numerical values), whereas trust decreases for individuals with poorer health statuses.
+
+Belief that Success Depends on Education: Healthier individuals also tend to believe more strongly that success depends on education. The agreement levels are higher (lower numerical values) for "VERY GOOD" and "GOOD" health statuses.
+
+
+```{r}
+# Display plots for indices (19, 20)
+grid.arrange(grobs = list(ggplotGrob(plot_list[[19]]), ggplotGrob(plot_list[[20]])), ncol = 2, widths = c(1, 1), heights = c(4, 1), padding = unit(1, "lines"))
+```
+
+Height and Health: Healthier individuals (those reporting "VERY GOOD" and "GOOD" health statuses) tend to be taller on average compared to those with poorer health statuses.
+
+Variability: There is less variability in height among healthier individuals, as indicated by narrower interquartile ranges and fewer outliers in the boxplots. In contrast, poorer health statuses show more variability in height, with wider IQRs and more outliers.
+
+Distribution Patterns: The histograms suggest that the distribution of height becomes more flattened and spread out as health status worsens, indicating a broader range of heights among less healthy individuals.
+
+
+```{r}
+# Display plots for indices (21, 22)
+grid.arrange(grobs = list(ggplotGrob(plot_list[[21]]), ggplotGrob(plot_list[[22]])), ncol = 2, widths = c(1, 1), heights = c(4, 1), padding = unit(1, "lines"))
+```
+
+Weight and Health: Healthier individuals (those reporting "VERY GOOD" and "GOOD" health statuses) tend to have lower average weights compared to those with poorer health statuses.
+
+Variability: There is less variability in weight among healthier individuals, as indicated by narrower interquartile ranges and fewer outliers in the boxplots. In contrast, poorer health statuses show more variability in weight, with wider IQRs and more outliers.
+
+Distribution Patterns: The histograms suggest that the distribution of weight becomes more flattened and spread out as health status worsens, indicating a broader range of weights among less healthy individuals.
+
+
+```{r}
+# Display plots for indices (23, 24)
+grid.arrange(grobs = list(ggplotGrob(plot_list[[23]]), ggplotGrob(plot_list[[24]])), ncol = 2, widths = c(1, 1), heights = c(4, 1), padding = unit(1, "lines"))
+```
+
+Spouse's Age and Health: Healthier individuals (those reporting "VERY GOOD" and "GOOD" health statuses) tend to have younger spouses on average compared to those with poorer health statuses.
+
+Variability: There is less variability in spouse's age among healthier individuals, as indicated by narrower interquartile ranges and fewer outliers in the boxplots. In contrast, poorer health statuses show more variability in spouse's age, with wider IQRs and more outliers.
+
+Distribution Patterns: The histograms suggest that the distribution of spouse's age becomes more flattened and spread out as health status worsens, indicating a broader range of ages among spouses of less healthy individuals.
+
+
+```{r}
+grid.arrange(
+  grobs = list(
+    ggplotGrob(plot_list[[25]]), ggplotGrob(plot_list[[26]]),
+    ggplotGrob(plot_list[[27]]), ggplotGrob(plot_list[[28]])
+  ),
+  ncol = 2,
+  nrow = 2,
+  widths = c(1, 1),
+  heights = c(2, 2),  # Adjusted heights to give equal space to both rows
+  padding = unit(1, "lines")
+)
+
+```
+
+Household Social Class: Healthier individuals tend to be in higher social classes (lower numerical values). The social class distribution is more concentrated for "VERY GOOD" and "GOOD" health statuses, indicating a higher proportion of middle and upper-middle-class individuals. Poorer health statuses show more variability and a tendency towards lower social classes.
+
+Number of Children: Healthier individuals tend to have fewer children. The distribution of the number of children is lower for "VERY GOOD" and "GOOD" health statuses, while those with poorer health statuses show slightly higher numbers of children and more variability.
+
+
